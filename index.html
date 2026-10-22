@@ -151,6 +151,8 @@
       box-shadow: var(--shadow);
       backdrop-filter: blur(14px);
     }
+    .briefing-card { animation-delay: .08s; }
+    .briefing-card .button { margin-top: .35rem; }
     .eyebrow {
       margin: 0 0 .7rem;
       color: var(--accent);
@@ -270,6 +272,12 @@
       font-size: 2rem;
       font-weight: 900;
     }
+    .best-score {
+      margin: -0.7rem auto 1.35rem;
+      color: var(--muted);
+      font-size: .95rem;
+      font-weight: 700;
+    }
     [hidden] { display: none !important; }
 
     @keyframes rise-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
@@ -293,14 +301,21 @@
       <div class="score-pill" aria-live="polite">Score: <span id="score">0</span>/10</div>
     </header>
 
-    <section aria-label="Quiz progress">
+    <section aria-label="Quiz progress" id="progress-panel" hidden>
       <div class="progress-row"><span id="progress-label">Question 1 of 10</span><span id="progress-percent">10%</span></div>
       <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="10" aria-valuenow="1" aria-label="Quiz progress">
         <div class="progress-fill" id="progress-fill"></div>
       </div>
     </section>
 
-    <section class="quiz-card" id="quiz-panel" aria-labelledby="question-heading">
+    <section class="quiz-card briefing-card" id="briefing-panel" aria-labelledby="briefing-heading">
+      <p class="eyebrow">Mission control</p>
+      <h1 id="briefing-heading">Ready to explore the cosmos?</h1>
+      <p class="intro">Answer 10 space exploration questions. Select one answer per question and see how high you can score.</p>
+      <button class="button" id="start-button" type="button">Start quiz <span aria-hidden="true">→</span></button>
+    </section>
+
+    <section class="quiz-card" id="quiz-panel" aria-labelledby="question-heading" hidden>
       <p class="eyebrow">Mission briefing</p>
       <div class="question-number">01 <span>/ 10</span></div>
       <h1 id="question-heading">Loading your first mission...</h1>
@@ -315,6 +330,7 @@
       <h2 id="results-heading">You’re a cosmic explorer!</h2>
       <p class="result-copy" id="result-copy">Your journey through the stars is just beginning.</p>
       <div class="final-score" id="final-score">0 / 10</div><br>
+      <p class="best-score" id="best-score">Best score: No best score yet</p>
       <button class="button" id="restart-button" type="button">Play again <span aria-hidden="true">↻</span></button>
     </section>
   </main>
@@ -338,14 +354,45 @@
       let current = 0;
       let score = 0;
       let answered = false;
+      let bestScore = null;
+      const bestScoreKey = "cosmic-quest-best-score";
 
       const $ = (id) => document.getElementById(id);
       const questionHeading = $("question-heading");
       const answers = $("answers");
       const feedback = $("feedback");
       const nextButton = $("next-button");
+      const startButton = $("start-button");
+      const briefingPanel = $("briefing-panel");
       const quizPanel = $("quiz-panel");
       const resultsPanel = $("results-panel");
+      const progressPanel = $("progress-panel");
+
+      function readBestScore() {
+        try {
+          const stored = window.localStorage.getItem(bestScoreKey);
+          const parsed = Number(stored);
+          if (stored !== null && Number.isInteger(parsed) && parsed >= 0 && parsed <= questions.length) {
+            bestScore = parsed;
+          }
+        } catch (error) {
+          // Keep the in-memory fallback when browser storage is unavailable.
+        }
+        return bestScore;
+      }
+
+      function recordBestScore() {
+        const savedBest = readBestScore();
+        if (savedBest === null || score > savedBest) {
+          bestScore = score;
+          try {
+            window.localStorage.setItem(bestScoreKey, String(bestScore));
+          } catch (error) {
+            // The current session can still display its best score without storage.
+          }
+        }
+        return bestScore;
+      }
 
       function updateProgress() {
         const count = current + 1;
@@ -403,9 +450,9 @@
 
       function showResults() {
         quizPanel.hidden = true;
-        document.querySelector(".progress-row").hidden = true;
-        document.querySelector(".progress-track").hidden = true;
+        progressPanel.hidden = true;
         resultsPanel.hidden = false;
+        const currentBest = recordBestScore();
         const scoreDisplay = $("final-score");
         const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
         if (reducedMotion) {
@@ -421,6 +468,7 @@
           };
           window.setTimeout(countUp, 100);
         }
+        $("best-score").textContent = `Best score: ${currentBest} / ${questions.length}`;
         const reaction = score === 10 ? ["🏆", "Perfect orbit!", "You navigated every question flawlessly. The cosmos salutes you!"]
           : score >= 7 ? ["🚀", "Stellar work!", "You’re charting an impressive course through the universe."]
           : score >= 4 ? ["🌙", "Nice flight!", "You found some bright stars. Keep exploring and you’ll go even farther."]
@@ -431,21 +479,35 @@
         $("restart-button").focus();
       }
 
+      function startAttempt() {
+        current = 0;
+        score = 0;
+        answered = false;
+        $("score").textContent = "0";
+        briefingPanel.hidden = true;
+        resultsPanel.hidden = true;
+        quizPanel.hidden = false;
+        progressPanel.hidden = false;
+        renderQuestion();
+      }
+
+      startButton.addEventListener("click", startAttempt);
+      document.addEventListener("keydown", (event) => {
+        if (quizPanel.hidden || answered || event.ctrlKey || event.metaKey || event.altKey) return;
+        const selected = Number(event.key) - 1;
+        if (selected < 0 || selected >= questions[current].choices.length) return;
+        const button = answers.querySelectorAll(".answer")[selected];
+        if (!button || button.disabled) return;
+        event.preventDefault();
+        chooseAnswer(button, selected);
+      });
       nextButton.addEventListener("click", () => {
         if (current === questions.length - 1) showResults();
         else { current++; renderQuestion(); }
       });
       $("restart-button").addEventListener("click", () => {
-        current = 0;
-        score = 0;
-        $("score").textContent = "0";
-        resultsPanel.hidden = true;
-        document.querySelector(".progress-row").hidden = false;
-        document.querySelector(".progress-track").hidden = false;
-        quizPanel.hidden = false;
-        renderQuestion();
+        startAttempt();
       });
-      renderQuestion();
     })();
   </script>
 </body>
